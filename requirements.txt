@@ -1,0 +1,15 @@
+openai==1.30.5
+Pillow==10.3.0
+selenium==4.21.0
+torch==2.3.0
+torchvision==0.18.0
+transformers==4.41.1
+python-dotenv==1.0.1
+boto3==1.34.149
+selenium-wire==5.1.0
+awslambdaric==2.0.12
+blinker==1.7.0
+fastapi[standard]==0.112.2
+webdriver-manager==4.0.2
+beautifulsoup4==4.12.3
+requests

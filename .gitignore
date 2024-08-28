@@ -1,0 +1,6 @@
+.env
+common/owlvit-base-patch32
+common/bart-large-mnli
+.venv
+*.tar
+__pycache__
