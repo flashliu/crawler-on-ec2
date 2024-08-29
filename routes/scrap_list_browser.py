@@ -21,6 +21,7 @@ async def scrapListBrowser(url: str = Body(..., embed=True)):
         driver.get(url)
         utils.handle_popup(driver)
 
+        utils.wait_for_requests_to_complete(driver)
         driver.execute_script(
             """
             window.scrollTo({
@@ -30,6 +31,7 @@ async def scrapListBrowser(url: str = Body(..., embed=True)):
             });
             """
         )
+        utils.wait_for_requests_to_complete(driver)
 
         width = driver.execute_script(
             "return Math.max( document.body.scrollWidth, document.body.offsetWidth, document.documentElement.clientWidth, document.documentElement.scrollWidth, document.documentElement.offsetWidth );"
@@ -54,12 +56,12 @@ async def scrapListBrowser(url: str = Body(..., embed=True)):
 
         print(f"Detected {len(watch_boxes)} Watches-----------------")
 
-        if len(watch_boxes) is 0:
+        if len(watch_boxes) == 0:
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
             image_bytes = buffered.getvalue()
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-            
+
             return {
                 "error": "Can not find any watches",
                 "image_base64": image_base64,
@@ -115,3 +117,4 @@ async def scrapListBrowser(url: str = Body(..., embed=True)):
     finally:
         utils.clean_up_driver(driver, temp_dirs)
         del temp_dirs
+        driver.quit()

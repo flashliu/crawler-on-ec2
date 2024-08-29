@@ -60,3 +60,4 @@ async def scrapDetail(url: str = Body(..., embed=True)):
     finally:
         utils.clean_up_driver(driver, temp_dirs)
         del temp_dirs
+        driver.quit();

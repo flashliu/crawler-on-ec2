@@ -7,11 +7,13 @@
         "buildx",
         "dotenv",
         "fastapi",
+        "KHTML",
         "mnli",
         "OPENAI",
         "owlvit",
         "pydantic",
         "seleniumwire",
-        "torchvision"
+        "torchvision",
+        "useragent"
     ]
 }
