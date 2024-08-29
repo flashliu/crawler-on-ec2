@@ -12,7 +12,7 @@ import torch
 from tempfile import mkdtemp
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium import webdriver
+from seleniumwire import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from collections import Counter
 from openai import AsyncAzureOpenAI
@@ -28,6 +28,7 @@ from collections import defaultdict
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from torchvision.ops import box_iou
 from selenium.webdriver.common.by import By
+
 
 def get_driver():
     options = Options()
@@ -53,22 +54,24 @@ def get_driver():
 
     PROXY_URL = os.getenv("PROXY", None)
 
-    # seleniumwire_options = {}
-    # # use proxy if PROXY_URL
-    # if PROXY_URL:
-    #     seleniumwire_options = {
-    #         "proxy": {"http": f"{PROXY_URL}", "https": f"{PROXY_URL}"},
-    #     }
-    #     print(f"use proxy {PROXY_URL}")
-    # else:
-    #     print("no proxy")
+    seleniumwire_options = {}
+    # use proxy if PROXY_URL
+    if PROXY_URL:
+        seleniumwire_options = {
+            "proxy": {"http": f"{PROXY_URL}", "https": f"{PROXY_URL}"},
+        }
+        print(f"use proxy {PROXY_URL}")
+    else:
+        print("no proxy")
 
     service = ChromeService(ChromeDriverManager().install())
     try:
         # 添加延迟确保 Chrome 完全启动
         time.sleep(5)
 
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = webdriver.Chrome(
+            service=service, seleniumwire_options=seleniumwire_options, options=options
+        )
         driver.set_page_load_timeout(600)
     except Exception as e:
         print(f"Error starting Chrome WebDriver: {e}")
@@ -686,7 +689,7 @@ def _is_watch_related(text):
     model = AutoModelForSequenceClassification.from_pretrained(model_path)
     candidate_labels = ["watch", "not watch"]
     _classifier = pipeline("zero-shot-classification", model=model, tokenizer=tokenizer)
-    
+
     result = _classifier(text, candidate_labels)
     score = (
         result["scores"][0] if result["labels"][0] == "watch" else result["scores"][1]
