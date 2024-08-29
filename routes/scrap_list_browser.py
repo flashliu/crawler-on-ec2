@@ -13,10 +13,9 @@ router = APIRouter(tags=["Scrap api"])
 
 
 @router.post("/scrap/list/browser")
-async def scrapListBrowser(info: ScrapListInfo):
-    driver, temp_dirs = utils.get_driver()
-    url = info.url
+async def scrapListBrowser(url: str = Body(..., embed=True)):
     try:
+        driver, temp_dirs = utils.get_driver()
         domain = urlparse(url).netloc
 
         driver.get(url)

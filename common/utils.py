@@ -729,3 +729,76 @@ def find_most_related_array(json_data):
             max_score = score
             best_array = array
     return best_array, max_score
+
+
+def calculate_area(box):
+    width = box["xmax"] - box["xmin"]
+    height = box["ymax"] - box["ymin"]
+    return width * height
+
+
+def get_detail_images_html(watch_boxes, driver):
+    inject_levenshtein_similarity(driver)
+    if not watch_boxes:
+        return None
+    if not driver:
+        return None
+
+    try:
+        # 找到包含最大区域的检测框
+        max_detection = max(watch_boxes, key=lambda x: calculate_area(x["box"]))
+
+        # 计算调整后的坐标
+        device_pixel_ratio = driver.execute_script("return window.devicePixelRatio;")
+        adjusted_x = (max_detection["box"]["xmin"] + 40) / device_pixel_ratio
+        adjusted_y = (max_detection["box"]["ymin"] + 40) / device_pixel_ratio
+
+        # 获取目标网页元素
+        dom = driver.execute_script(
+            """
+            function isListItem(element) {
+                if (!element || !element.parentElement) {
+                    return false;
+                }
+                var siblings = element.parentElement.children;
+                var elementClassList = Array.from(element.classList);
+                for (var i = 0; i < siblings.length; i++) {
+                    if (siblings[i] !== element && siblings[i].tagName === element.tagName) {
+                        var siblingClassList = Array.from(siblings[i].classList);
+                        if (elementClassList.some(cls => siblingClassList.includes(cls))) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            function findListParent(element) {
+                var parent = element.parentElement;
+                while (parent && parent.tagName !== 'BODY') {
+                    if (isListItem(element)) {
+                        return parent;
+                    }
+                    element = parent;
+                    parent = parent.parentElement;
+                }
+                return null;
+            }
+
+            var ele = document.elementFromPoint(arguments[0], arguments[1]);
+            var listParent = findListParent(ele);
+            return listParent;
+
+            """,
+            adjusted_x,
+            adjusted_y,
+        )
+
+        # 获取该元素的外部 HTML
+        html = driver.execute_script("return arguments[0].outerHTML;", dom)
+
+        return html
+
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return None

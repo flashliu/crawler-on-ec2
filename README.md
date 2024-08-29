@@ -17,7 +17,7 @@ fastapi dev main.py
 ## 1. Build image
 
 ```bash
-docker buildx build .
+docker buildx build --platform linux/amd64 .
 ```
 
 ## 2. Save image to `.tar` file
