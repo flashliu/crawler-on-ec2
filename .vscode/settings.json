@@ -4,6 +4,7 @@
         "aceptar",
         "boto",
         "botocore",
+        "buildx",
         "dotenv",
         "fastapi",
         "mnli",
