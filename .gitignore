@@ -3,4 +3,5 @@ common/owlvit-base-patch32
 common/bart-large-mnli
 .venv
 *.tar
+*.zip
 __pycache__

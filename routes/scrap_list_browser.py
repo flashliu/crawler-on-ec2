@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import json
 from time import sleep
@@ -14,10 +15,9 @@ router = APIRouter(tags=["Scrap api"])
 
 @router.post("/scrap/list/browser")
 async def scrapListBrowser(url: str = Body(..., embed=True)):
+    driver, temp_dirs = utils.get_driver()
     try:
-        driver, temp_dirs = utils.get_driver()
         domain = urlparse(url).netloc
-
         driver.get(url)
         utils.handle_popup(driver)
 
@@ -50,10 +50,20 @@ async def scrapListBrowser(url: str = Body(..., embed=True)):
         screenshot = full_page.screenshot_as_png
 
         image = Image.open(io.BytesIO(screenshot))
-
         watch_boxes = utils.watch_detect(image)
 
         print(f"Detected {len(watch_boxes)} Watches-----------------")
+
+        if len(watch_boxes) is 0:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            image_bytes = buffered.getvalue()
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+            
+            return {
+                "error": "Can not find any watches",
+                "image_base64": image_base64,
+            }
 
         html_list, parent = utils.get_html_list(watch_boxes, driver)
 

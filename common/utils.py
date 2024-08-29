@@ -29,6 +29,8 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from torchvision.ops import box_iou
 from selenium.webdriver.common.by import By
 
+from common.extension import proxies
+
 
 def get_driver():
     options = Options()
@@ -52,26 +54,34 @@ def get_driver():
     options.add_argument(f"--disk-cache-dir={disk_cache_dir}")
     options.add_argument(f"--homedir={homedir}")
 
-    PROXY_URL = os.getenv("PROXY", None)
+    PROXY_USERNAME = os.getenv("PROXY_USERNAME", None)
+    PROXY_PASS = os.getenv("PROXY_PASS", None)
+    PROXY_ENDPOINT = os.getenv("PROXY_ENDPOINT", None)
+    PROXY_PORT = os.getenv("PROXY_PORT", None)
+    print(f"proxy_user_name: {PROXY_USERNAME}")
+    print(f"proxy_pass: {PROXY_PASS}")
+    print(f"proxy_endpoint: {PROXY_ENDPOINT}")
+    print(f"proxy_port: {PROXY_PORT}")
+    proxies_extension = proxies(PROXY_USERNAME, PROXY_PASS, PROXY_ENDPOINT, PROXY_PORT)
+    options.add_extension(proxies_extension)
 
-    seleniumwire_options = {}
-    # use proxy if PROXY_URL
-    if PROXY_URL:
-        seleniumwire_options = {
-            "proxy": {"http": f"{PROXY_URL}", "https": f"{PROXY_URL}"},
-        }
-        print(f"use proxy {PROXY_URL}")
-    else:
-        print("no proxy")
+    # seleniumwire_options = {}
+    # # use proxy if PROXY_URL
+    # if PROXY_URL:
+    #     PROXY_URL = os.getenv("PROXY", None)
+    #     seleniumwire_options = {
+    #         "proxy": {"http": f"{PROXY_URL}", "https": f"{PROXY_URL}"},
+    #     }
+    #     print(f"use proxy {PROXY_URL}")
+    # else:
+    #     print("no proxy")
 
     service = ChromeService(ChromeDriverManager().install())
     try:
         # 添加延迟确保 Chrome 完全启动
         time.sleep(5)
 
-        driver = webdriver.Chrome(
-            service=service, seleniumwire_options=seleniumwire_options, options=options
-        )
+        driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(600)
     except Exception as e:
         print(f"Error starting Chrome WebDriver: {e}")
