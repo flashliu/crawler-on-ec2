@@ -13,6 +13,8 @@ from tempfile import mkdtemp
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 from seleniumwire import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from collections import Counter
 from openai import AsyncAzureOpenAI
@@ -27,8 +29,9 @@ from transformers import (
 from collections import defaultdict
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from torchvision.ops import box_iou
-from selenium.webdriver.common.by import By
 from fake_useragent import UserAgent
+
+pending_requests_count = 0
 
 
 def get_driver():
@@ -52,9 +55,10 @@ def get_driver():
     options.add_argument(f"--data-path={data_path}")
     options.add_argument(f"--disk-cache-dir={disk_cache_dir}")
     options.add_argument(f"--homedir={homedir}")
-    agent = UserAgent().random;
+    agent = UserAgent().random
     print(f"user-agent={agent}")
-    options.add_argument(f"user-agent={agent}")
+    options.add_argument(f"--user-agent={agent}")
+    options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
     # PROXY_USERNAME = os.getenv("PROXY_USERNAME", None)
     # PROXY_PASS = os.getenv("PROXY_PASS", None)
@@ -82,11 +86,14 @@ def get_driver():
     service = ChromeService(ChromeDriverManager().install())
     try:
         # 添加延迟确保 Chrome 完全启动
-        time.sleep(5)
 
         driver = webdriver.Chrome(
-            service=service, seleniumwire_options=seleniumwire_options, options=options
+            service=service,
+            seleniumwire_options=seleniumwire_options,
+            options=options,
         )
+        driver.request_interceptor = request_interceptor
+        driver.response_interceptor = response_interceptor
         driver.set_page_load_timeout(600)
     except Exception as e:
         print(f"Error starting Chrome WebDriver: {e}")
@@ -147,29 +154,63 @@ def enable_request_logging(driver):
     driver.execute_cdp_cmd("Network.enable", {})
 
 
-# 等待所有请求完成
-def wait_for_requests_to_complete(driver, timeout=60):
+def is_ajax_request(request):
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or request.headers.get("Content-Type")
+        and "application/json" in request.headers.get("Content-Type")
+    )
+
+
+def request_interceptor(request):
+    if is_ajax_request(request):
+        global pending_requests_count
+        pending_requests_count += 1
+        print(
+            f"Request started: {request.url} (Pending requests: {pending_requests_count})"
+        )
+
+
+def response_interceptor(request, response):
+    if is_ajax_request(request):
+        global pending_requests_count
+        pending_requests_count -= 1
+        print(
+            f"Request completed: {request.url} with status {response.status_code} (Pending requests: {pending_requests_count})"
+        )
+
+
+def wait_for_requests_to_complete(driver, timeout=30):
     start_time = time.time()
-
-    while time.time() - start_time < timeout:
-        incomplete_requests = [req for req in driver.requests if req.response is None]
-
-        # 调试输出当前未完成的请求
-        if incomplete_requests:
-            for req in incomplete_requests:
-                print(f"未完成请求: {req.method} {req.url}")
-
-        # 如果没有未完成的请求，则跳出循环
-        if not incomplete_requests:
-            print("所有请求已完成")
-            return
-
-        time.sleep(1)  # 每秒检查一次
-
-    print("等待请求完成超时")
+    global pending_requests_count
+    WebDriverWait(driver, timeout).until(lambda d: pending_requests_count == 0)
+    total_time = time.time() - start_time
+    print(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
 
 
-def watch_detect(image, threshold=0.002):
+# 使用 WebDriverWait 等待图片完全加载
+def wait_for_images_to_load(driver, timeout=60):
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.execute_script(
+                """
+                let images = Array.from(document.images);
+                images.forEach(img => {
+                    console.log(`Image: ${img.src}, Complete: ${img.complete}, NaturalWidth: ${img.naturalWidth}`);
+                });
+                return images.every(img => img.complete && img.naturalWidth > 0);
+                """
+            )
+        )
+        print("Images loaded successfully.")
+    except TimeoutException:
+        # logs = driver.get_log("browser")
+        # for log in logs:
+        #     print(log)
+        print("Timeout waiting for images to load, but continuing execution.")
+
+
+def watch_detect(image, threshold=0.001):
     current_file_path = os.path.abspath(__file__)
     current_dir = os.path.dirname(current_file_path)
     model_path = os.path.join(current_dir, "owlvit-base-patch32")
@@ -200,6 +241,7 @@ def watch_detect(image, threshold=0.002):
             if result["box"] == box:
                 filtered_results.append(result)
                 break
+    print(filtered_results)
 
     return filtered_results
 
@@ -445,8 +487,6 @@ def get_html_list(watch_boxes, driver):
             most_common_class,
         )
 
-        print(f"Found {len(children_html_list)} DOM elements-----------------")
-
         return list(set(children_html_list)), most_common_parent.get_attribute(
             "class"
         ) or most_common_parent.get_attribute("id")
@@ -456,94 +496,71 @@ def get_html_list(watch_boxes, driver):
 
 
 def handle_popup(driver):
-    # 定义一组可能的定位器
-    locators = [
-        # Text
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accept')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'agree')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'cookies')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'alle')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accetta')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'aceptar')]",
-        ),
-        # Id
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accept')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'agree')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'cookies')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'alle')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accetta')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'aceptar')]",
-        ),
-        # Class
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accept')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'agree')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'cookies')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'alle')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'accetta')]",
-        ),
-        (
-            By.XPATH,
-            "//*[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'aceptar')]",
-        ),
-    ]
+    # JavaScript代码来查找并点击与Cookies相关的按钮，首先检查普通元素，再检查shadowRoot
+    script = """
+    function closeCookiePopups() {
+        const keywords = ['accept', 'agree', 'cookie', 'alle', 'accetta', 'alla', 'aceptar', 'continue'];
+        let foundElements = [];
 
-    for locator in locators:
-        try:
-            # 尝试找到并点击按钮
-            button = driver.find_element(*locator)
-            button.click()
-            return
-        except Exception as e:
-            # 如果当前定位器未找到按钮，继续尝试下一个定位器
-            continue
+        // 定义一个函数来查找和点击按钮
+        function findAndClickButtons(root) {
+            keywords.forEach(keyword => {
+                const lowerKeyword = keyword.toLowerCase();
+                const buttons = root.querySelectorAll('button, input[type="button"], input[type="submit"], div[role="button"], span[role="button"], a');
+
+                buttons.forEach(button => {
+                    const buttonText = button.textContent.toLowerCase().trim();
+                    
+                    // 使用正则表达式来匹配
+                    const regex = new RegExp('\\\\b' + lowerKeyword + '\\\\b', 'i');
+
+                    // 获取按钮的样式
+                    const style = window.getComputedStyle(button);
+
+                    // 检查按钮是否在可视区域内
+                    const rect = button.getBoundingClientRect();
+                    const isVisible = rect.top >= 0 && rect.left >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+
+                    // 检查display和visibility属性，以及按钮是否在可见区域
+                    const isDisplayed = style.display !== 'none' && style.visibility !== 'hidden' && isVisible;
+
+                    // 确保a标签没有href属性或者href属性为空，防止页面跳转，且按钮可见
+                    if (isDisplayed &&
+                        (button.tagName.toLowerCase() !== 'a' || !button.hasAttribute('href') || button.getAttribute('href') === '') &&
+                        (regex.test(buttonText) || 
+                         (button.value && regex.test(button.value.toLowerCase().trim())))) {
+                         
+                        foundElements.push(button.outerHTML);
+                        button.click();
+                    }
+                });
+            });
+        }
+
+        // 首先查找普通元素中的按钮
+        findAndClickButtons(document);
+
+        // 查找包含 shadow-root 的元素
+        const shadowHostElements = document.querySelectorAll('body > *');
+
+        shadowHostElements.forEach(element => {
+            // 尝试获取 shadow-root
+            const shadowRoot = element.shadowRoot;
+            if (shadowRoot) {
+                // 查找 shadow-root 中的按钮
+                findAndClickButtons(shadowRoot);
+            }
+        });
+
+        return foundElements;
+    }
+
+    // 执行关闭操作并返回找到的元素信息
+    return closeCookiePopups();
+    """
+
+    # 执行 JavaScript 脚本，并返回找到的元素信息
+    return driver.execute_script(script)
 
 
 def upload_html_to_s3(html_content):

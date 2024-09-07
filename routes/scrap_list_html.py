@@ -1,10 +1,10 @@
 import json
 import os
 import asyncio
+import html
 from typing import Optional
 from urllib.parse import urlparse
 from fastapi import APIRouter
-from pydantic import BaseModel
 import requests
 from common import utils
 from models.scrap_list_info import ScrapListInfo
@@ -38,10 +38,22 @@ async def scrapListHtml(info: ScrapListInfo):
             response = requests.post(
                 info.url, json=info.payload, proxies=proxies, verify=False
             )
+    html_str = response.content
+    if info.response_key is not None:
 
-    s3_uuid = utils.upload_html_to_s3(response.content)
+        def get_nested_value(data, keys):
+            # 将字符串键按 '.' 分割为列表
+            keys = keys.split(".")
+            for key in keys:
+                # 逐层访问字典
+                data = data.get(key, {})
+            return data
+        response_json = response.json()
+        html_str = get_nested_value(response_json, info.response_key)
 
-    html_list, parent = utils.get_api_html_list(response.content) or ([], "")
+    s3_uuid = utils.upload_html_to_s3(html_str)
+
+    html_list, parent = utils.get_api_html_list(html_str) or ([], "")
 
     conditions = f"""
         There are a few conditions you have to follow:

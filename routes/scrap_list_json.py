@@ -13,7 +13,6 @@ router = APIRouter(tags=["Scrap api"])
 @router.post("/scrap/list/json")
 async def scrapListJson(info: ScrapListInfo):
     url = info.url
-    payload = info.payload
     domain = urlparse(url).netloc
 
     # 从环境变量获取代理
@@ -26,10 +25,19 @@ async def scrapListJson(info: ScrapListInfo):
     else:
         proxies = None
 
-    if payload is None:
-        response = requests.get(url, proxies=proxies, verify=False)
+    if info.payload is None:
+        response = requests.get(info.url, proxies=proxies, verify=False)
     else:
-        response = requests.post(url, data=payload, proxies=proxies, verify=False)
+        if info.payload_type == "form":
+            # 将 payload 转换为符合 multipart/form-data 的格式
+            files = {key: (None, value) for key, value in info.payload.items()}
+            response = requests.post(
+                info.url, files=files, proxies=proxies, verify=False
+            )
+        elif info.payload_type == "json":
+            response = requests.post(
+                info.url, json=info.payload, proxies=proxies, verify=False
+            )
     res = response.json()
     s3_uuid = utils.upload_html_to_s3(json.dumps(res))
     list, _ = utils.find_most_related_array(res)
