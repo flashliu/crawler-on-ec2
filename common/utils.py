@@ -166,26 +166,23 @@ def request_interceptor(request):
     if is_ajax_request(request):
         global pending_requests_count
         pending_requests_count += 1
-        print(
-            f"Request started: {request.url} (Pending requests: {pending_requests_count})"
-        )
 
 
 def response_interceptor(request, response):
     if is_ajax_request(request):
         global pending_requests_count
         pending_requests_count -= 1
-        print(
-            f"Request completed: {request.url} with status {response.status_code} (Pending requests: {pending_requests_count})"
-        )
 
 
 def wait_for_requests_to_complete(driver, timeout=30):
-    start_time = time.time()
-    global pending_requests_count
-    WebDriverWait(driver, timeout).until(lambda d: pending_requests_count == 0)
-    total_time = time.time() - start_time
-    print(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
+    try:
+        start_time = time.time()
+        global pending_requests_count
+        WebDriverWait(driver, timeout).until(lambda d: pending_requests_count == 0)
+        total_time = time.time() - start_time
+        print(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
+    except TimeoutException:
+        print("Timeout waiting for requests, but continuing execution.")
 
 
 # 使用 WebDriverWait 等待图片完全加载
@@ -204,9 +201,6 @@ def wait_for_images_to_load(driver, timeout=60):
         )
         print("Images loaded successfully.")
     except TimeoutException:
-        # logs = driver.get_log("browser")
-        # for log in logs:
-        #     print(log)
         print("Timeout waiting for images to load, but continuing execution.")
 
 

@@ -8,18 +8,19 @@ from common import utils
 from PIL import Image
 from time import sleep
 from selenium.webdriver.common.by import By
+from concurrent.futures import ThreadPoolExecutor
 
 from models.scrap_list_browser_info import ScrapListBrowserInfo
 
 router = APIRouter(tags=["Scrap api"])
 
+executor = ThreadPoolExecutor(max_workers=5)
 
-@router.post("/scrap/list/browser")
-async def scrapListBrowser(info: ScrapListBrowserInfo):
+
+def run_selenium_scraping(info: ScrapListBrowserInfo):
     driver, temp_dirs = utils.get_driver()
     url = info.url
     try:
-        domain = urlparse(url).netloc
         driver.get(url)
         sleep(30)
         utils.wait_for_requests_to_complete(driver)
@@ -63,7 +64,6 @@ async def scrapListBrowser(info: ScrapListBrowserInfo):
         screenshot = full_page.screenshot_as_png
 
         image = Image.open(io.BytesIO(screenshot))
-        image.save("screen.png")
         watch_boxes = utils.watch_detect(image)
 
         print(f"Detected {len(watch_boxes)} Watches-----------------")
@@ -71,30 +71,51 @@ async def scrapListBrowser(info: ScrapListBrowserInfo):
         s3_uuid = utils.upload_html_to_s3(driver.page_source)
 
         if len(watch_boxes) == 0:
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            image_bytes = buffered.getvalue()
-            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-
-            return {
-                "message": "Can not find any watches",
-                "listings": [],
-                "s3_uuid": s3_uuid,
-                "parent": None,
-                "image_base64": image_base64,
-            }
+            return [], parent, s3_uuid, image
 
         html_list, parent = utils.get_html_list(watch_boxes, driver)
 
-        if info.parent is not None and parent != info.parent:
-            return {"listings": [], "parent": parent, "s3_uuid": s3_uuid}
-            
-        if html_list is not None:
-            print(f"Found {len(html_list)} DOM elements-----------------")
+        return html_list or [], parent, s3_uuid, image
+
+    except Exception as e:
+        print(e)
+        return {"error": str(e)}
+    finally:
+        utils.clean_up_driver(driver, temp_dirs)
+        del temp_dirs
+        driver.quit()
+
+
+@router.post("/scrap/list/browser")
+async def scrapListBrowser(info: ScrapListBrowserInfo):
+    loop = asyncio.get_event_loop()
+    domain = urlparse(info.url).netloc
+
+    html_list, parent, s3_uuid, image = await loop.run_in_executor(
+        executor, run_selenium_scraping, info
+    )
+
+    if len(html_list) == 0:
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        image_bytes = buffered.getvalue()
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        return {
+            "message": "Can not find any watches",
+            "listings": [],
+            "s3_uuid": s3_uuid,
+            "parent": None,
+            "image_base64": image_base64,
+        }
+
+    if info.parent is not None and parent != info.parent:
+        return {"listings": [], "parent": parent, "s3_uuid": s3_uuid}
+
+    if html_list is not None:
+        print(f"Found {len(html_list)} DOM elements-----------------")
 
         image.close()
-        del image
-        del watch_boxes
 
         if html_list is not None:
             # 使用 asyncio.gather 并发执行 extractWithOpenAI 调用
@@ -125,17 +146,7 @@ async def scrapListBrowser(info: ScrapListBrowserInfo):
                 json.loads(extracted) for extracted in results if extracted is not None
             ]
 
-            del html_list
-
             return {"listings": output, "parent": parent, "s3_uuid": s3_uuid}
 
         else:
             return {"listings": [], "parent": parent, "s3_uuid": s3_uuid}
-
-    except Exception as e:
-        print(e)
-        return {"error": str(e)}
-    finally:
-        utils.clean_up_driver(driver, temp_dirs)
-        del temp_dirs
-        driver.quit()
