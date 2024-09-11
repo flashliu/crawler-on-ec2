@@ -14,6 +14,7 @@ router = APIRouter(tags=["Scrap api"])
 async def scrapListJson(info: ScrapListInfo):
     url = info.url
     domain = urlparse(url).netloc
+    print(f"scrap with json: {url}")
 
     # 从环境变量获取代理
     proxy = os.getenv("PROXY")

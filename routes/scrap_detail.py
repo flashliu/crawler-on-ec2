@@ -27,10 +27,10 @@ def run_selenium_scraping(url: str):
         watch_boxes = utils.watch_detect(image, threshold=0.05)
 
         images_html = utils.get_detail_images_html(watch_boxes, driver)
-        return text, images_html
+        return text, images_html, None
     except Exception as e:
         print(e)
-        return {"error": str(e)}
+        return None, None, {"error": str(e)}
     finally:
         utils.clean_up_driver(driver, temp_dirs)
         # 释放内存
@@ -46,9 +46,13 @@ def run_selenium_scraping(url: str):
 @router.post("/scrap/detail")
 async def scrapDetail(url: str = Body(..., embed=True)):
     loop = asyncio.get_event_loop()
-    text, images_html = await loop.run_in_executor(
+    text, images_html, error = await loop.run_in_executor(
         executor, run_selenium_scraping, url
     )
+
+    if error is not None:
+        return error
+        
     domain = urlparse(url).netloc
     res = await utils.extractWithOpenAI(
         "Extract the watch data, expect fields:brand,collection,reference,price, return a json, just give me single layer json result, the price should be with currency symbol.from the following text:"

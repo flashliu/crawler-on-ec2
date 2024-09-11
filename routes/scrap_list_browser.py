@@ -20,6 +20,7 @@ executor = ThreadPoolExecutor(max_workers=5)
 def run_selenium_scraping(info: ScrapListBrowserInfo):
     driver, temp_dirs = utils.get_driver()
     url = info.url
+    print(f"scrap with browser: {url}")
     try:
         driver.get(url)
         sleep(30)
@@ -64,6 +65,7 @@ def run_selenium_scraping(info: ScrapListBrowserInfo):
         screenshot = full_page.screenshot_as_png
 
         image = Image.open(io.BytesIO(screenshot))
+        # image.save("screenshot.png")
         watch_boxes = utils.watch_detect(image)
 
         print(f"Detected {len(watch_boxes)} Watches-----------------")
@@ -71,15 +73,22 @@ def run_selenium_scraping(info: ScrapListBrowserInfo):
         s3_uuid = utils.upload_html_to_s3(driver.page_source)
 
         if len(watch_boxes) == 0:
-            return [], parent, s3_uuid, image
+            return (
+                [],
+                None,
+                s3_uuid,
+                image,
+                None,
+            )  # 如果没有找到手表盒，返回None作为parent
 
         html_list, parent = utils.get_html_list(watch_boxes, driver)
 
-        return html_list or [], parent, s3_uuid, image
+        return html_list or [], parent, s3_uuid, image, None
 
     except Exception as e:
         print(e)
-        return {"error": str(e)}
+        # 返回带错误信息的结构，同时保持返回4个值，其中错误信息放在一个单独的字段中
+        return [], None, None, None, {"error": str(e)}
     finally:
         utils.clean_up_driver(driver, temp_dirs)
         del temp_dirs
@@ -91,10 +100,15 @@ async def scrapListBrowser(info: ScrapListBrowserInfo):
     loop = asyncio.get_event_loop()
     domain = urlparse(info.url).netloc
 
-    html_list, parent, s3_uuid, image = await loop.run_in_executor(
+    html_list, parent, s3_uuid, image, error = await loop.run_in_executor(
         executor, run_selenium_scraping, info
     )
 
+    # 检查是否有错误信息
+    if error is not None:
+        return error
+
+    # 如果没有找到 watch_boxes，返回空的 listings
     if len(html_list) == 0:
         buffered = io.BytesIO()
         image.save(buffered, format="PNG")

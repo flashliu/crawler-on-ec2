@@ -186,15 +186,12 @@ def wait_for_requests_to_complete(driver, timeout=30):
 
 
 # 使用 WebDriverWait 等待图片完全加载
-def wait_for_images_to_load(driver, timeout=60):
+def wait_for_images_to_load(driver, timeout=30):
     try:
         WebDriverWait(driver, timeout).until(
             lambda d: d.execute_script(
                 """
                 let images = Array.from(document.images);
-                images.forEach(img => {
-                    console.log(`Image: ${img.src}, Complete: ${img.complete}, NaturalWidth: ${img.naturalWidth}`);
-                });
                 return images.every(img => img.complete && img.naturalWidth > 0);
                 """
             )
@@ -415,6 +412,7 @@ def get_html_list(watch_boxes, driver):
 
         counter = Counter(parent_elements)
         most_common_parent = counter.most_common(1)[0][0]
+        print(f"most_common_parent------------{most_common_parent}")
 
         if not most_common_parent:
             return None, None
@@ -427,7 +425,11 @@ def get_html_list(watch_boxes, driver):
             var classNames = [];
             
             for (var i = 0; i < children.length; i++) {
-                classNames.push(children[i].className);
+                // 过滤掉没有有效 outerHTML 和内容为空的元素
+                if (children[i].outerHTML && children[i].outerHTML.trim() !== '' && children[i].textContent.trim() !== '') {
+                    console.log('item class name: ' + children[i].className);
+                    classNames.push(children[i].className);
+                }
             }
             
             // 使用字典记录相似的类名组
@@ -518,12 +520,15 @@ def handle_popup(driver):
                     // 检查display和visibility属性，以及按钮是否在可见区域
                     const isDisplayed = style.display !== 'none' && style.visibility !== 'hidden' && isVisible;
 
-                    // 确保a标签没有href属性或者href属性为空，防止页面跳转，且按钮可见
+                    // 检查href属性是否会跳转
+                    const href = button.getAttribute('href');  // 获取href属性的值
+                    const isValidHref = href == null || href == "" || (!href.startsWith("http") && !href.startsWith("/"));
+
                     if (isDisplayed &&
-                        (button.tagName.toLowerCase() !== 'a' || !button.hasAttribute('href') || button.getAttribute('href') === '') &&
+                        isValidHref && 
                         (regex.test(buttonText) || 
-                         (button.value && regex.test(button.value.toLowerCase().trim())))) {
-                         
+                        (button.value && regex.test(button.value.toLowerCase().trim())))) {
+                        
                         foundElements.push(button.outerHTML);
                         button.click();
                     }

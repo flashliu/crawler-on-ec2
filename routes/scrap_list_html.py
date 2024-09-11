@@ -18,6 +18,7 @@ async def scrapListHtml(info: ScrapListInfo):
     # 从环境变量获取代理
     proxy = os.getenv("PROXY")
     proxies = None
+    print(f"scrap with html: {info.url}")
 
     if proxy:
         print(f"使用代理 {proxy}")
