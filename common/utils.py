@@ -237,12 +237,16 @@ def watch_detect(image, threshold=0.001):
             if result["box"] == box:
                 filtered_results.append(result)
                 break
-    print(filtered_results)
 
     return filtered_results
 
 
 async def extractWithOpenAI(question, model="gpt-35-turbo"):
+    openAiClient = AsyncAzureOpenAI(
+        api_key=os.getenv("OPENAI_API_KEY", ""),
+        api_version=os.getenv("OPENAI_API_VERSION", ""),
+        azure_endpoint=os.getenv("OPENAI_AZURE_ENDPOINT", ""),
+    )
     messages = [
         {
             "role": "system",
@@ -254,13 +258,7 @@ async def extractWithOpenAI(question, model="gpt-35-turbo"):
         },
     ]
 
-    client = AsyncAzureOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY", ""),
-        api_version=os.getenv("OPENAI_API_VERSION", ""),
-        azure_endpoint=os.getenv("OPENAI_AZURE_ENDPOINT", ""),
-    )
-
-    chat_completion = await client.chat.completions.create(
+    chat_completion = await openAiClient.chat.completions.create(
         model=model,
         temperature=0,
         top_p=1.0,
@@ -567,6 +565,9 @@ def handle_popup(driver):
     return driver.execute_script(script)
 
 
+session = aioboto3.Session()
+
+
 async def upload_html_to_s3(html_content):
     # 从环境变量中获取 AWS 相关配置
     aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID", "")
@@ -591,7 +592,6 @@ async def upload_html_to_s3(html_content):
     object_name = f"{object_name}/{uuid_v4}"
 
     # 使用 aioboto3 进行异步 S3 客户端的操作
-    session = aioboto3.Session()  # 这里我们显式创建一个 session
     async with session.client(
         "s3",
         aws_access_key_id=aws_access_key_id,
@@ -600,7 +600,7 @@ async def upload_html_to_s3(html_content):
     ) as s3:
         try:
             # 异步上传 HTML 内容到 S3
-            response = await s3.put_object(
+            await s3.put_object(
                 Bucket=bucket_name,
                 Key=object_name,
                 Body=html_content,
