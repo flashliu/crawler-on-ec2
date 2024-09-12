@@ -3,7 +3,7 @@ import base64
 import io
 import json
 from urllib.parse import urlparse
-from fastapi import APIRouter, Body
+from fastapi import APIRouter
 from common import utils
 from PIL import Image
 from time import sleep
@@ -14,19 +14,22 @@ from models.scrap_list_browser_info import ScrapListBrowserInfo
 
 router = APIRouter(tags=["Scrap api"])
 
-executor = ThreadPoolExecutor(max_workers=3)
+# 使用线程池执行 Selenium 操作
+executor = ThreadPoolExecutor(max_workers=2)
 
 
 def run_selenium_scraping(info: ScrapListBrowserInfo):
     driver, temp_dirs = utils.get_driver()
     url = info.url
-    print(f"scrap with browser: {url}")
+    print(f"Scrap with browser: {url}")
     try:
         driver.get(url)
-        sleep(30)
+        sleep(5)
         utils.wait_for_requests_to_complete(driver)
         popups = utils.handle_popup(driver)
         print(popups)
+
+        # 滚动页面到底部
         driver.execute_script(
             """
             window.scroll({
@@ -40,17 +43,20 @@ def run_selenium_scraping(info: ScrapListBrowserInfo):
         utils.wait_for_requests_to_complete(driver)
         utils.wait_for_images_to_load(driver)
 
+        # 获取页面宽度和高度
         width = driver.execute_script(
-            "return Math.max( document.body.scrollWidth, document.body.offsetWidth, document.documentElement.clientWidth, document.documentElement.scrollWidth, document.documentElement.offsetWidth );"
+            "return Math.max(document.body.scrollWidth, document.body.offsetWidth, document.documentElement.clientWidth, document.documentElement.scrollWidth, document.documentElement.offsetWidth);"
         )
         height = driver.execute_script(
-            "return Math.max( document.body.scrollHeight, document.body.offsetHeight, document.documentElement.clientHeight, document.documentElement.scrollHeight, document.documentElement.offsetHeight );"
+            "return Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.clientHeight, document.documentElement.scrollHeight, document.documentElement.offsetHeight);"
         )
 
         print(f"Window size: {width}x{height}")
 
+        # 设置窗口大小
         driver.set_window_size(width, height)
 
+        # 滚动回顶部
         driver.execute_script(
             """
             window.scroll({
@@ -61,33 +67,25 @@ def run_selenium_scraping(info: ScrapListBrowserInfo):
             """
         )
 
+        # 截取全页面截图
         full_page = driver.find_element(By.TAG_NAME, "body")
         screenshot = full_page.screenshot_as_png
 
         image = Image.open(io.BytesIO(screenshot))
-        # image.save("screenshot.png")
         watch_boxes = utils.watch_detect(image)
 
         print(f"Detected {len(watch_boxes)} Watches-----------------")
 
-        s3_uuid = utils.upload_html_to_s3(driver.page_source)
-
         if len(watch_boxes) == 0:
-            return (
-                [],
-                None,
-                s3_uuid,
-                image,
-                None,
-            )  # 如果没有找到手表盒，返回None作为parent
+            return [], None, driver.page_source, image, None
 
+        # 在同步上下文中调用 get_html_list
         html_list, parent = utils.get_html_list(watch_boxes, driver)
 
-        return html_list or [], parent, s3_uuid, image, None
+        return html_list or [], parent, driver.page_source, image, None
 
     except Exception as e:
         print(e)
-        # 返回带错误信息的结构，同时保持返回4个值，其中错误信息放在一个单独的字段中
         return [], None, None, None, {"error": str(e)}
     finally:
         utils.clean_up_driver(driver, temp_dirs)
@@ -100,9 +98,13 @@ async def scrapListBrowser(info: ScrapListBrowserInfo):
     loop = asyncio.get_event_loop()
     domain = urlparse(info.url).netloc
 
-    html_list, parent, s3_uuid, image, error = await loop.run_in_executor(
+    # 在run_in_executor中异步执行Selenium操作
+    html_list, parent, page_source, image, error = await loop.run_in_executor(
         executor, run_selenium_scraping, info
     )
+
+    # 上传HTML内容到S3
+    s3_uuid = await utils.upload_html_to_s3(page_source)
 
     # 检查是否有错误信息
     if error is not None:

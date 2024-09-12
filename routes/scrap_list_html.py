@@ -1,11 +1,10 @@
 import json
 import os
 import asyncio
-import html
 from typing import Optional
 from urllib.parse import urlparse
 from fastapi import APIRouter
-import requests
+import httpx
 from common import utils
 from models.scrap_list_info import ScrapListInfo
 
@@ -18,27 +17,27 @@ async def scrapListHtml(info: ScrapListInfo):
     # 从环境变量获取代理
     proxy = os.getenv("PROXY")
     proxies = None
-    print(f"scrap with html: {info.url}")
+    print(f"Scrap with html: {info.url}")
 
     if proxy:
-        print(f"使用代理 {proxy}")
-        proxies = {"http": proxy, "https": proxy}
+        print(f"Use proxy {proxy}")
+        proxies = {"http://": proxy, "https://": proxy}
     else:
         proxies = None
 
-    if info.payload is None:
-        response = requests.get(info.url, proxies=proxies, verify=False)
-    else:
-        if info.payload_type == "form":
-            # 将 payload 转换为符合 multipart/form-data 的格式
-            files = {key: (None, value) for key, value in info.payload.items()}
-            response = requests.post(
-                info.url, files=files, proxies=proxies, verify=False
-            )
-        elif info.payload_type == "json":
-            response = requests.post(
-                info.url, json=info.payload, proxies=proxies, verify=False
-            )
+    async with httpx.AsyncClient(proxies=proxies, verify=False) as client:
+        if info.payload is None:
+            response = await client.get(info.url)
+        else:
+            if info.payload_type == "form":
+                # 将 payload 转换为符合 multipart/form-data 的格式，确保所有字段都是字符串
+                form_data = {key: str(value) for key, value in info.payload.items()}
+                response = await client.post(
+                    info.url, data=form_data
+                )  # 使用data代替files
+            elif info.payload_type == "json":
+                response = await client.post(info.url, json=info.payload)
+
     html_str = response.content
     if info.response_key is not None:
 
@@ -49,10 +48,11 @@ async def scrapListHtml(info: ScrapListInfo):
                 # 逐层访问字典
                 data = data.get(key, {})
             return data
+
         response_json = response.json()
         html_str = get_nested_value(response_json, info.response_key)
 
-    s3_uuid = utils.upload_html_to_s3(html_str)
+    s3_uuid = await utils.upload_html_to_s3(html_str)
 
     html_list, parent = utils.get_api_html_list(html_str) or ([], "")
 

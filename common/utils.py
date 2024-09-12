@@ -1,6 +1,6 @@
 import os
 import time
-import boto3
+import aioboto3
 import uuid
 import gc
 import glob
@@ -56,7 +56,7 @@ def get_driver():
     agent = UserAgent().random
     print(f"user-agent={agent}")
     options.add_argument(f"--user-agent={agent}")
-    options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
+    # options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
     # PROXY_USERNAME = os.getenv("PROXY_USERNAME", None)
     # PROXY_PASS = os.getenv("PROXY_PASS", None)
@@ -91,8 +91,13 @@ def get_driver():
             options=options,
         )
         driver.pending_requests_count = 0
-        driver.request_interceptor = request_interceptor
-        driver.response_interceptor = response_interceptor
+        driver.request_interceptor = lambda request: request_interceptor(
+            request, driver
+        )
+        driver.response_interceptor = lambda request, response: response_interceptor(
+            request, response, driver
+        )
+
         driver.set_page_load_timeout(600)
     except Exception as e:
         print(f"Error starting Chrome WebDriver: {e}")
@@ -161,17 +166,15 @@ def is_ajax_request(request):
     )
 
 
-def request_interceptor(request):
+def request_interceptor(request, driver):
     if is_ajax_request(request):
         # 使用 driver 实例的 pending_requests_count 属性
-        driver = request.driver
         driver.pending_requests_count += 1
 
 
-def response_interceptor(request, response):
+def response_interceptor(request, response, driver):
     if is_ajax_request(request):
         # 使用 driver 实例的 pending_requests_count 属性
-        driver = request.driver
         driver.pending_requests_count -= 1
 
 
@@ -564,8 +567,8 @@ def handle_popup(driver):
     return driver.execute_script(script)
 
 
-def upload_html_to_s3(html_content):
-
+async def upload_html_to_s3(html_content):
+    # 从环境变量中获取 AWS 相关配置
     aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID", "")
     aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
@@ -573,71 +576,45 @@ def upload_html_to_s3(html_content):
     object_name = os.getenv("S3_BUCKET_HTML_SAVE_PATH", "")
     region_name = os.getenv("S3_BUCKET_REGION_NAME", "")
 
-    print(f"aws_access_key_id: {aws_access_key_id}")
-    print(f"aws_secret_access_key: {aws_secret_access_key}")
-    print(f"bucket_name: {bucket_name}")
-    print(f"object_name: {object_name}")
-
+    # 检查 HTML 内容是否存在
     if not html_content:
         print("Error: No HTML content provided.")
         return None
 
-    if (
-        not aws_access_key_id
-        or not aws_secret_access_key
-        or not bucket_name
-        or not object_name
-    ):
+    # 检查是否所有必要的环境变量都有值
+    if not all([aws_access_key_id, aws_secret_access_key, bucket_name, object_name]):
         print("Error: Missing environment variables.")
         return None
 
-    # Correct way to create the S3 client
-    s3 = boto3.client(
+    # 生成唯一的文件名
+    uuid_v4 = str(uuid.uuid4())
+    object_name = f"{object_name}/{uuid_v4}"
+
+    # 使用 aioboto3 进行异步 S3 客户端的操作
+    session = aioboto3.Session()  # 这里我们显式创建一个 session
+    async with session.client(
         "s3",
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
         region_name=region_name,
-    )
-
-    uuid_v4 = str(uuid.uuid4())
-
-    object_name = f"{object_name}/{uuid_v4}"
-
-    try:
-        # upload HTML to S3
-        s3.put_object(
-            Bucket=bucket_name,
-            Key=object_name,
-            Body=html_content,
-            ContentType="text/html",  # set the content type to HTML
-        )
-        print(f"Successfully uploaded to {bucket_name}/{object_name}")
-        return uuid_v4
-    except NoCredentialsError:
-        print("Error: No AWS credentials found.")
-    except PartialCredentialsError:
-        print("Error: Incomplete AWS credentials found.")
-    except Exception as e:
-        print(f"Error uploading to S3: {e}")
-
-    return None
-
-
-def scroll_to_bottom(driver):
-    last_height = driver.execute_script("return document.body.scrollHeight")
-
-    while True:
-        # 滚动到页面底部
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # 等待内容加载
-
-        # 再次获取新的页面高度
-        new_height = driver.execute_script("return document.body.scrollHeight")
-
-        # 检查是否高度变化，如果没有变化则表示已到达页面底部
-        if new_height == last_height:
-            break
-        last_height = new_height
+    ) as s3:
+        try:
+            # 异步上传 HTML 内容到 S3
+            response = await s3.put_object(
+                Bucket=bucket_name,
+                Key=object_name,
+                Body=html_content,
+                ContentType="text/html",  # 设置内容类型为 HTML
+            )
+            print(f"Successfully uploaded to {bucket_name}/{object_name}")
+            return uuid_v4
+        except NoCredentialsError:
+            print("Error: No AWS credentials found.")
+        except PartialCredentialsError:
+            print("Error: Incomplete AWS credentials found.")
+        except Exception as e:
+            print(f"Error uploading to S3: {e}")
+            return None
 
 
 def is_list_item(element):
