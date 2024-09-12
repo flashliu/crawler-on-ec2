@@ -6,9 +6,10 @@ import gc
 import glob
 import shutil
 import re
-from bs4 import BeautifulSoup
+import logging
 import torch
 
+from bs4 import BeautifulSoup
 from tempfile import mkdtemp
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -54,7 +55,7 @@ def get_driver():
     options.add_argument(f"--disk-cache-dir={disk_cache_dir}")
     options.add_argument(f"--homedir={homedir}")
     agent = UserAgent().random
-    print(f"user-agent={agent}")
+    logging.info(f"user-agent={agent}")
     options.add_argument(f"--user-agent={agent}")
     # options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
@@ -62,10 +63,10 @@ def get_driver():
     # PROXY_PASS = os.getenv("PROXY_PASS", None)
     # PROXY_ENDPOINT = os.getenv("PROXY_ENDPOINT", None)
     # PROXY_PORT = os.getenv("PROXY_PORT", None)
-    # print(f"proxy_user_name: {PROXY_USERNAME}")
-    # print(f"proxy_pass: {PROXY_PASS}")
-    # print(f"proxy_endpoint: {PROXY_ENDPOINT}")
-    # print(f"proxy_port: {PROXY_PORT}")
+    # logging.info(f"proxy_user_name: {PROXY_USERNAME}")
+    # logging.info(f"proxy_pass: {PROXY_PASS}")
+    # logging.info(f"proxy_endpoint: {PROXY_ENDPOINT}")
+    # logging.info(f"proxy_port: {PROXY_PORT}")
     # options.add_argument(f'--proxy-server=http://127.0.0.1:7890')
     # proxies_extension = proxies(PROXY_USERNAME, PROXY_PASS, PROXY_ENDPOINT, PROXY_PORT)
     # options.add_extension(proxies_extension)
@@ -77,9 +78,9 @@ def get_driver():
         seleniumwire_options = {
             "proxy": {"http": f"{PROXY_URL}", "https": f"{PROXY_URL}"},
         }
-        print(f"use proxy {PROXY_URL}")
+        logging.info(f"use proxy {PROXY_URL}")
     else:
-        print("no proxy")
+        logging.info("no proxy")
 
     service = ChromeService(ChromeDriverManager().install())
     try:
@@ -100,7 +101,7 @@ def get_driver():
 
         driver.set_page_load_timeout(600)
     except Exception as e:
-        print(f"Error starting Chrome WebDriver: {e}")
+        logging.info(f"Error starting Chrome WebDriver: {e}")
         raise
 
     # 返回临时目录路径和 driver
@@ -111,16 +112,16 @@ def get_driver():
 def clean_up_driver(driver, temp_dirs):
     try:
         driver.quit()
-        print("Chrome WebDriver successfully quit.")
+        logging.info("Chrome WebDriver successfully quit.")
     except Exception as e:
-        print(f"Error quitting Chrome WebDriver: {e}")
+        logging.info(f"Error quitting Chrome WebDriver: {e}")
 
     for dir_path in temp_dirs:
         try:
             shutil.rmtree(dir_path)
-            print(f"Temporary directory {dir_path} successfully removed.")
+            logging.info(f"Temporary directory {dir_path} successfully removed.")
         except Exception as e:
-            print(f"Error removing temporary directory {dir_path}: {e}")
+            logging.info(f"Error removing temporary directory {dir_path}: {e}")
     delete_files("/tmp/.pki/*")
     delete_files("/tmp/core.chrome.*")
     # 触发垃圾回收
@@ -137,18 +138,18 @@ def delete_files(temp_files):
     for file in files:
         if os.path.isfile(file):
             os.remove(file)
-            print(f"Deleted file: {file}")
+            logging.info(f"Deleted file: {file}")
 
 
 def get_tmp_files():
     for root, dirs, files in os.walk("/tmp"):
         for file in files:
-            print(f"clean_up_driver {os.path.join(root, file)}")
+            logging.info(f"clean_up_driver {os.path.join(root, file)}")
 
 
 def check_space(title):
     total, used, free = shutil.disk_usage("/tmp")
-    print(
+    logging.info(
         f"{title} Total: {total/1024/1024} MB, Used: {used/1024/1024} MB, Free: {free/1024/1024} MB"
     )
 
@@ -185,9 +186,9 @@ def wait_for_requests_to_complete(driver, timeout=30):
         WebDriverWait(driver, timeout).until(lambda d: d.pending_requests_count == 0)
 
         total_time = time.time() - start_time
-        print(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
+        logging.info(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
     except TimeoutException:
-        print("Timeout waiting for requests, but continuing execution.")
+        logging.info("Timeout waiting for requests, but continuing execution.")
 
 
 # 使用 WebDriverWait 等待图片完全加载
@@ -201,9 +202,9 @@ def wait_for_images_to_load(driver, timeout=30):
                 """
             )
         )
-        print("Images loaded successfully.")
+        logging.info("Images loaded successfully.")
     except TimeoutException:
-        print("Timeout waiting for images to load, but continuing execution.")
+        logging.info("Timeout waiting for images to load, but continuing execution.")
 
 
 def watch_detect(image, threshold=0.001):
@@ -415,7 +416,6 @@ def get_html_list(watch_boxes, driver):
 
         counter = Counter(parent_elements)
         most_common_parent = counter.most_common(1)[0][0]
-        print(f"most_common_parent------------{most_common_parent}")
 
         if not most_common_parent:
             return None, None
@@ -463,7 +463,7 @@ def get_html_list(watch_boxes, driver):
             most_common_parent,
         )
 
-        print(f"most_common_class------------{most_common_class}")
+        logging.info(f"most_common_class------------{most_common_class}")
 
         children_html_list = driver.execute_script(
             """
@@ -490,7 +490,7 @@ def get_html_list(watch_boxes, driver):
             "class"
         ) or most_common_parent.get_attribute("id")
     except Exception as e:
-        print(f"Error: {e}")
+        logging.info(f"Error: {e}")
         return None, None
 
 
@@ -579,12 +579,12 @@ async def upload_html_to_s3(html_content):
 
     # 检查 HTML 内容是否存在
     if not html_content:
-        print("Error: No HTML content provided.")
+        logging.info("Error: No HTML content provided.")
         return None
 
     # 检查是否所有必要的环境变量都有值
     if not all([aws_access_key_id, aws_secret_access_key, bucket_name, object_name]):
-        print("Error: Missing environment variables.")
+        logging.info("Error: Missing environment variables.")
         return None
 
     # 生成唯一的文件名
@@ -606,14 +606,14 @@ async def upload_html_to_s3(html_content):
                 Body=html_content,
                 ContentType="text/html",  # 设置内容类型为 HTML
             )
-            print(f"Successfully uploaded to {bucket_name}/{object_name}")
+            logging.info(f"Successfully uploaded to {bucket_name}/{object_name}")
             return uuid_v4
         except NoCredentialsError:
-            print("Error: No AWS credentials found.")
+            logging.info("Error: No AWS credentials found.")
         except PartialCredentialsError:
-            print("Error: Incomplete AWS credentials found.")
+            logging.info("Error: Incomplete AWS credentials found.")
         except Exception as e:
-            print(f"Error uploading to S3: {e}")
+            logging.info(f"Error uploading to S3: {e}")
             return None
 
 
@@ -670,7 +670,7 @@ def get_api_html_list(html_content):
     for child in most_common_parent.find_all(recursive=False):
         children_html_list.append(str(child))
 
-    print(f"Found {len(children_html_list)} DOM elements-----------------")
+    logging.info(f"Found {len(children_html_list)} DOM elements-----------------")
 
     return children_html_list, most_common_parent.get("class", "")
 
@@ -810,5 +810,5 @@ def get_detail_images_html(watch_boxes, driver):
         return html
 
     except Exception as e:
-        print(f"Error occurred: {e}")
+        logging.info(f"Error occurred: {e}")
         return None

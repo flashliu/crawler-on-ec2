@@ -10,9 +10,11 @@
         "buildx",
         "dotenv",
         "fastapi",
+        "httpcore",
         "httpx",
         "Interactable",
         "KHTML",
+        "levelname",
         "loadend",
         "mnli",
         "OPENAI",
@@ -21,6 +23,7 @@
         "pydantic",
         "seleniumwire",
         "torchvision",
-        "useragent"
+        "useragent",
+        "watchfiles"
     ]
 }

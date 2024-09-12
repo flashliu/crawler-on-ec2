@@ -1,4 +1,5 @@
 import warnings
+import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from routes.scrap_list_browser import router as scrap_list_browser_router
@@ -9,6 +10,11 @@ from routes.scrap_detail import router as scrap_detail_router
 load_dotenv(override=True)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*TLS in TLS.*")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logging.getLogger("httpx").setLevel(logging.ERROR)
 
 app = FastAPI()
 

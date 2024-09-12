@@ -5,12 +5,9 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Body
 from common import utils
 from PIL import Image
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 router = APIRouter(tags=["Scrap api"])
-
-executor = ThreadPoolExecutor(max_workers=3)
-
 
 def run_selenium_scraping(url: str):
     try:
@@ -46,16 +43,19 @@ def run_selenium_scraping(url: str):
 @router.post("/scrap/detail")
 async def scrapDetail(url: str = Body(..., embed=True)):
     loop = asyncio.get_event_loop()
-    text, images_html, error = await loop.run_in_executor(
-        executor, run_selenium_scraping, url
-    )
+    
+    # 使用 `with` 管理 ProcessPoolExecutor，以确保其在请求结束时关闭
+    with ProcessPoolExecutor(max_workers=1) as executor:
+        text, images_html, error = await loop.run_in_executor(
+            executor, run_selenium_scraping, url
+        )
 
     if error is not None:
         return error
-        
+
     domain = urlparse(url).netloc
     res = await utils.extractWithOpenAI(
-        "Extract the watch data, expect fields:brand,collection,reference,price, return a json, just give me single layer json result, the price should be with currency symbol.from the following text:"
+        "Extract the watch data, expect fields: brand, collection, reference, price, return a json, just give me single layer json result, the price should be with currency symbol. from the following text:"
         + text,
         model="gpt-4",
     )
@@ -64,7 +64,7 @@ async def scrapDetail(url: str = Body(..., embed=True)):
 
     if images_html is not None:
         images = await utils.extractWithOpenAI(
-            f"Extract the image urls,just give me a json url(with domain:{domain}) list,Remove identical images and keep the largest size, from the following html:"
+            f"Extract the image urls, just give me a json url(with domain:{domain}) list, Remove identical images and keep the largest size, from the following html:"
             + images_html
         )
         if images is not None:

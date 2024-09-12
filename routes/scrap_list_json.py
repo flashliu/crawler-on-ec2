@@ -4,10 +4,16 @@ import asyncio
 from urllib.parse import urlparse
 from fastapi import APIRouter
 import httpx
+from concurrent.futures import ProcessPoolExecutor
 from common import utils
 from models.scrap_list_info import ScrapListInfo
 
 router = APIRouter(tags=["Scrap api"])
+
+
+def find_most_related_array_in_process(res):
+    list, score = utils.find_most_related_array(res)
+    return list, score
 
 
 @router.post("/scrap/list/json")
@@ -32,14 +38,20 @@ async def scrapListJson(info: ScrapListInfo):
         else:
             if info.payload_type == "form":
                 # 将 payload 转换为符合 multipart/form-data 的格式
-                files = {key: (None, value) for key, value in info.payload.items()}
-                response = await client.post(info.url, files=files)
+                form_data = {key: str(value) for key, value in info.payload.items()}
+                response = await client.post(info.url, data=form_data)
             elif info.payload_type == "json":
                 response = await client.post(info.url, json=info.payload)
 
     res = response.json()
     s3_uuid = await utils.upload_html_to_s3(json.dumps(res))
-    list, _ = utils.find_most_related_array(res)
+
+    # 使用ProcessPoolExecutor来处理find_most_related_array操作
+    with ProcessPoolExecutor(max_workers=1) as executor:
+        loop = asyncio.get_event_loop()
+        list, _ = await loop.run_in_executor(
+            executor, find_most_related_array_in_process, res
+        )
 
     if list is None:
         return {"listings": [], "parent": None}
