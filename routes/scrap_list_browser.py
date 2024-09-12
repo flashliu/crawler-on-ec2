@@ -14,7 +14,7 @@ from models.scrap_list_browser_info import ScrapListBrowserInfo
 
 router = APIRouter(tags=["Scrap api"])
 
-executor = ThreadPoolExecutor(max_workers=5)
+executor = ThreadPoolExecutor(max_workers=3)
 
 
 def run_selenium_scraping(info: ScrapListBrowserInfo):

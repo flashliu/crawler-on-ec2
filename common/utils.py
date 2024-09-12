@@ -31,8 +31,6 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from torchvision.ops import box_iou
 from fake_useragent import UserAgent
 
-pending_requests_count = 0
-
 
 def get_driver():
     options = Options()
@@ -92,6 +90,7 @@ def get_driver():
             seleniumwire_options=seleniumwire_options,
             options=options,
         )
+        driver.pending_requests_count = 0
         driver.request_interceptor = request_interceptor
         driver.response_interceptor = response_interceptor
         driver.set_page_load_timeout(600)
@@ -164,21 +163,24 @@ def is_ajax_request(request):
 
 def request_interceptor(request):
     if is_ajax_request(request):
-        global pending_requests_count
-        pending_requests_count += 1
+        # 使用 driver 实例的 pending_requests_count 属性
+        driver = request.driver
+        driver.pending_requests_count += 1
 
 
 def response_interceptor(request, response):
     if is_ajax_request(request):
-        global pending_requests_count
-        pending_requests_count -= 1
+        # 使用 driver 实例的 pending_requests_count 属性
+        driver = request.driver
+        driver.pending_requests_count -= 1
 
 
 def wait_for_requests_to_complete(driver, timeout=30):
     try:
         start_time = time.time()
-        global pending_requests_count
-        WebDriverWait(driver, timeout).until(lambda d: pending_requests_count == 0)
+
+        WebDriverWait(driver, timeout).until(lambda d: d.pending_requests_count == 0)
+
         total_time = time.time() - start_time
         print(f"Waited for XHR requests to complete: {total_time:.2f} seconds")
     except TimeoutException:

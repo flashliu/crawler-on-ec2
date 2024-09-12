@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 router = APIRouter(tags=["Scrap api"])
 
-executor = ThreadPoolExecutor(max_workers=5)
+executor = ThreadPoolExecutor(max_workers=3)
 
 
 def run_selenium_scraping(url: str):
