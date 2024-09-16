@@ -32,7 +32,7 @@ async def scrapListJson(info: ScrapListInfo):
     else:
         proxies = None
 
-    async with httpx.AsyncClient(proxies=proxies, verify=False) as client:
+    async with httpx.AsyncClient(proxies=proxies, verify=False, timeout=30) as client:
         if info.payload is None:
             response = await client.get(info.url)
         else:
